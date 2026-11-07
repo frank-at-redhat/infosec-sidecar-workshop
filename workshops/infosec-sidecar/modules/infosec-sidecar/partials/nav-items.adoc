@@ -1,5 +1,17 @@
 // This workshop's pages. Its nav.adoc includes this list when the workshop is built
 // alone, and the site's navigation includes it under Workshop Content, so the list
 // starts at the third level and every xref names this module.
-*** Module 1: First Steps
-**** xref:infosec-sidecar:module-01-first-steps.adoc[First Steps]
+*** Module 1: Identity Plane
+**** xref:infosec-sidecar:module-01-identity-plane.adoc[Identity Plane]
+*** Module 2: Service Mesh with SPIRE
+**** xref:infosec-sidecar:module-02-mesh.adoc[Service Mesh with SPIRE]
+*** Module 3: Ingress Passthrough
+**** xref:infosec-sidecar:module-03-ingress-passthrough.adoc[Ingress Passthrough]
+*** Module 4: External Trust Domain
+**** xref:infosec-sidecar:module-04-external-domain.adoc[External Trust Domain]
+*** Module 5: Federation
+**** xref:infosec-sidecar:module-05-federation.adoc[Federation]
+*** Module 6: InfoSec Sidecar
+**** xref:infosec-sidecar:module-06-infosec-sidecar.adoc[InfoSec Sidecar]
+*** Module 7: Clean Up
+**** xref:infosec-sidecar:module-07-cleanup.adoc[Clean Up]

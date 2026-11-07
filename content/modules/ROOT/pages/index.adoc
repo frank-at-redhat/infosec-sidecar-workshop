@@ -1,8 +1,7 @@
 = InfoSec Sidecar Workshop
 
-// Two or three sentences: who the workshop is for and what they can do after it.
-This workshop is for platform engineers who ...
-By the end, you can ...
+This workshop is for platform and security engineers who run Red Hat OpenShift Service Mesh and need applications outside the mesh to call in with their own SPIFFE identity, verified end to end rather than at the edge.
+By the end, you can build the whole path yourself: a SPIRE identity plane with Zero Trust Workload Identity Manager, a mesh that issues sidecar certificates from it, a Gateway API listener that passes TLS through on SNI, federation with a second trust domain, and the InfoSec sidecar that an external application runs to join in.
 
 == Where to Start
 
@@ -17,7 +16,7 @@ By the end, you can ...
 |xref:attendee.adoc[Workshop Attendee Guide]: how the workshop works and where to begin.
 
 |Looking for the command-line tools
-|xref:cli-tools.adoc[Shared CLI tools]: run `oc`, `helm` and the other tools in a pod on the cluster instead of installing them.
+|xref:cli-tools.adoc[Shared CLI tools]: run `oc`, `istioctl` and the other tools in a pod on the cluster instead of installing them.
 |===
 
 == Included Workshops

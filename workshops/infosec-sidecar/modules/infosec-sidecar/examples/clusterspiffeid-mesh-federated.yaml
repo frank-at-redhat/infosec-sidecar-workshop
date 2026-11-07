@@ -1,0 +1,14 @@
+# Same as Module 2, plus federatesWith: every mesh identity now
+# receives the ext.example bundle over SDS and can verify its callers.
+apiVersion: spire.spiffe.io/v1alpha1
+kind: ClusterSPIFFEID
+metadata:
+  name: istio-workloads
+spec:
+  spiffeIDTemplate: >-
+    spiffe://{{ .TrustDomain }}/ns/{{ .PodMeta.Namespace }}/sa/{{ .PodSpec.ServiceAccountName }}
+  podSelector:
+    matchLabels:
+      spiffe.io/spire-managed-identity: "true"
+  federatesWith:
+  - ext.example

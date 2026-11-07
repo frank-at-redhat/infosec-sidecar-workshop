@@ -1,6 +1,6 @@
 = InfoSec Sidecar Workshop
 
-// One sentence on what the workshops teach and who they are for.
+Teaches platform and security engineers to let applications outside Red Hat OpenShift Service Mesh call in over mTLS with their own SPIFFE identity, passed through the ingress gateway and verified by the workload sidecar.
 
 Attendees and instructors use the site, https://frank-at-redhat.github.io/infosec-sidecar-workshop/[frank-at-redhat.github.io/infosec-sidecar-workshop]: its *Workshop Instructor Guide* page has what an instructor needs to run a delivery, and its *Workshop Attendee Guide* page is where attendees start.
 This README is for the people who maintain the workshops.

@@ -1,0 +1,25 @@
+# Alternative to the Route: let MetalLB give the gateway a VIP.
+# Remove the service-type annotation and set the type instead.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: infosec-passthrough
+  namespace: istio-ingress
+  annotations:
+    networking.istio.io/service-type: LoadBalancer
+    metallb.universe.tf/address-pool: mesh-ingress
+spec:
+  gatewayClassName: istio
+  listeners:
+  - name: tls-passthrough
+    protocol: TLS
+    port: 443
+    hostname: "*.mesh.example"
+    tls:
+      mode: Passthrough
+    allowedRoutes:
+      namespaces:
+        from: Selector
+        selector:
+          matchLabels:
+            infosec.example/passthrough: "true"

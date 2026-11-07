@@ -1,0 +1,205 @@
+= Ingress Passthrough
+
+Expose `payments` through a Gateway API `Gateway` whose TLS listener passes sessions through on SNI without terminating them.
+After this module an outside caller can reach the `payments` sidecar's own TLS listener, which is what makes end-to-end identity possible in Module 6.
+
+.Exercises on this page
+* <<exercise-1>>
+* <<exercise-2>>
+* <<exercise-3>>
+
+[#exercise-1]
+== Exercise 1: Add the TLSRoute API
+
+OpenShift ships the standard Gateway API channel.
+`TLSRoute` is still in the experimental channel, so it has to be added once per cluster.
+
+. Check which Gateway API resources are present:
++
+[source,bash,role=execute]
+----
+oc api-resources --api-group gateway.networking.k8s.io
+----
++
+`gateways`, `gatewayclasses` and `httproutes` are listed; `tlsroutes` is not.
+
+. Find the Gateway API version the installed CRDs came from:
++
+[source,bash,role=execute]
+----
+oc get crd gateways.gateway.networking.k8s.io --output json \
+  | jq -r '.metadata.annotations
+      | .["gateway.networking.k8s.io/bundle-version"]'
+----
++
+It prints a version such as `v1.3.0`.
+
+. Add the `TLSRoute` CRD from the experimental channel of that same version:
++
+[source,bash,role=execute]
+----
+GWAPI=v1.3.0
+GWAPI_URL=https://github.com/kubernetes-sigs/gateway-api/releases/download
+oc apply --server-side \
+  -f "${GWAPI_URL}/${GWAPI}/experimental-install.yaml"
+----
++
+In a disconnected cluster, download that file ahead of time and apply it from disk.
+
+. Check again:
++
+[source,bash,role=execute]
+----
+oc api-resources --api-group gateway.networking.k8s.io | grep tlsroutes
+----
++
+`tlsroutes` is now listed.
+
+[#exercise-2]
+== Exercise 2: Create the Gateway
+
+. Create the `Gateway`.
+Three things to read in it: `mode: Passthrough`, which is the whole pattern; the `allowedRoutes` selector, which is InfoSec's approval gate (no namespace label, no route); and the `service-type` annotation, which keeps the gateway Service internal so the next step can put a `Route` in front of it:
++
+[source,yaml]
+----
+include::example$gateway-passthrough.yaml[]
+----
++
+[source,bash,role=execute]
+----
+sed "s/APPS_DOMAIN/${APPS}/" $MANIFESTS/gateway-passthrough.yaml \
+  | oc apply -f -
+----
+
+. Wait for the gateway's own pod:
++
+[source,bash,role=execute]
+----
+oc wait gateway infosec-passthrough \
+  --namespace istio-ingress \
+  --for condition=Programmed \
+  --timeout 180s
+----
++
+It prints `gateway.gateway.networking.k8s.io/infosec-passthrough condition met`.
+
+. Create the `TLSRoute` in the `payments` namespace.
+The app team owns this resource; the hostname is the SNI the external caller will send, and the backend is the workload's real port:
++
+[source,yaml]
+----
+include::example$tlsroute-payments.yaml[]
+----
++
+[source,bash,role=execute]
+----
+sed "s/APPS_DOMAIN/${APPS}/" $MANIFESTS/tlsroute-payments.yaml \
+  | oc apply -f -
+----
+
+. Check that the gateway accepted it:
++
+[source,bash,role=execute]
+----
+oc get tlsroute payments --namespace payments --output json \
+  | jq -r '.status.parents[0].conditions[]
+      | select(.type=="Accepted") | .status'
+----
++
+It prints `True`.
+
+[#exercise-3]
+== Exercise 3: Expose the Gateway
+
+Pick the tab that matches your cluster.
+The `Route` works on every cluster; MetalLB is what a bare-metal production deployment would use.
+
+[tabs]
+====
+OpenShift Route::
++
+--
+. Create a passthrough `Route` to the gateway Service.
+The router forwards on SNI and never decrypts, so it adds a hop but no key:
++
+[source,yaml]
+----
+include::example$route-gateway.yaml[]
+----
++
+[source,bash,role=execute]
+----
+sed "s/APPS_DOMAIN/${APPS}/" $MANIFESTS/route-gateway.yaml \
+  | oc apply -f -
+----
+
+. Save the host for later modules:
++
+[source,bash,role=execute]
+----
+export GW_HOST=payments.${APPS}
+export GW_ADDR=${GW_HOST}
+echo $GW_HOST
+----
+--
+MetalLB::
++
+--
+. Create an `IPAddressPool` named `mesh-ingress` with the MetalLB Operator, then replace the `Gateway` with the MetalLB variant:
++
+[source,yaml]
+----
+include::example$gateway-metallb.yaml[]
+----
++
+[source,bash,role=execute]
+----
+oc apply -f $MANIFESTS/gateway-metallb.yaml
+----
+
+. Read the VIP and save it; the SNI stays `payments.mesh.example` and your DNS or `/etc/hosts` maps it to the VIP:
++
+[source,bash,role=execute]
+----
+export GW_ADDR=$(oc get service infosec-passthrough-istio \
+  --namespace istio-ingress \
+  --output jsonpath='{.status.loadBalancer.ingress[0].ip}')
+export GW_HOST=payments.mesh.example
+echo $GW_ADDR
+----
++
+Change the `TLSRoute` hostname to `payments.mesh.example` as well.
+--
+====
+
+. Confirm the gateway is listening on SNI and forwarding as TCP:
++
+[source,bash,role=execute]
+----
+istioctl proxy-config listener \
+  deploy/infosec-passthrough-istio \
+  --namespace istio-ingress \
+  --port 443 \
+  --output json \
+  | jq -r '.[].filterChains[]
+      | "\(.filterChainMatch.serverNames) -> \(.filters[0].name)"'
+----
++
+It prints your `payments` hostname followed by `envoy.filters.network.tcp_proxy`.
+No `http_connection_manager`, no `tls_inspector` terminating anything: the gateway reads the SNI and copies bytes.
+
+. Make a TLS connection through it and look at the certificate that comes back:
++
+[source,bash,role=execute]
+----
+openssl s_client -connect ${GW_ADDR}:443 \
+  -servername ${GW_HOST} \
+  -alpn istio </dev/null 2>/dev/null \
+  | openssl x509 -noout -issuer -ext subjectAltName
+----
++
+The issuer is `CN = Mesh SPIRE CA` and the SAN is `URI:spiffe://cluster.local/ns/payments/sa/payments`.
+That certificate belongs to the `payments` sidecar, two hops away.
+Neither the router nor the gateway substituted its own, which is the proof that nothing on the path terminated TLS.
+The handshake itself fails right after, because you presented no client certificate and the namespace is `STRICT`; Module 6 fixes that.

@@ -1,0 +1,50 @@
+= Clean Up
+
+Remove everything the workshop created, in reverse order.
+The Operators and the `TLSRoute` CRD stay unless you remove them too.
+
+. Delete the external side and the client:
++
+[source,bash,role=execute]
+----
+oc delete namespace payments-client ext-spire
+----
+
+. Delete the federation on the mesh side:
++
+[source,bash,role=execute]
+----
+oc delete clusterfederatedtrustdomain ext-example
+oc patch spireserver cluster --type merge \
+  --patch '{"spec":{"federation":{"federatesWith":[]}}}'
+----
+
+. Delete the workload, the gateway and its route:
++
+[source,bash,role=execute]
+----
+oc delete namespace payments istio-ingress
+----
+
+. Delete the mesh and the identity plane:
++
+[source,bash,role=execute]
+----
+oc delete clusterspiffeid istio-workloads
+oc delete istio default
+oc delete istiocni default
+oc delete namespace istio-system istio-cni
+oc delete zerotrustworkloadidentitymanager cluster
+----
++
+Deleting the `ZeroTrustWorkloadIdentityManager` resource removes the server, agents and driver with it.
+
+. Check that nothing is left:
++
+[source,bash,role=execute]
+----
+oc get pods --namespace zero-trust-workload-identity-manager
+oc get namespaces | grep -E 'payments|ext-spire|istio-ingress'
+----
++
+The first command lists only the Operator pod; the second prints nothing.

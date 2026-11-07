@@ -1,0 +1,224 @@
+= InfoSec Sidecar
+
+Run the sidecar next to the external application, make the call through the gateway, and read the caller's SPIFFE ID off the `payments` sidecar's access log.
+Then prove the mesh is enforcing on identity, not just on a valid certificate.
+
+.Exercises on this page
+* <<exercise-1>>
+* <<exercise-2>>
+* <<exercise-3>>
+* <<exercise-4>>
+
+[#exercise-1]
+== Exercise 1: Allow the Caller
+
+Nothing reaches `payments` under `STRICT` without a policy that names the caller.
+The principal is the caller's SPIFFE ID without the scheme, in a foreign trust domain, and Istio treats it like any other.
+
+. Create the policy:
++
+[source,yaml]
+----
+include::example$authorization-policy.yaml[]
+----
++
+[source,bash,role=execute]
+----
+oc apply -f $MANIFESTS/authorization-policy.yaml
+----
+
+. Check that the sidecar loaded it:
++
+[source,bash,role=execute]
+----
+istioctl proxy-config listener deploy/payments \
+  --namespace payments \
+  --port 8080 \
+  --output json \
+  | jq -r '.. | .rules?.policies? // empty | keys[]'
+----
++
+It prints `ns[payments]-policy[payments-ingress]-rule[0]`.
+
+[#exercise-2]
+== Exercise 2: Run the Sidecar
+
+The InfoSec sidecar is a SPIRE agent and an Envoy next to the application.
+The agent attests to the external SPIRE server and exposes the Workload API on a socket; Envoy reads its SVID and the mesh bundle from that socket and originates mTLS.
+The application talks plaintext to `127.0.0.1:8080` and knows nothing about certificates.
+
+. Give the agent its bootstrap bundle, the external root you saved in Module 4:
++
+[source,bash,role=execute]
+----
+oc create namespace payments-client
+oc create configmap ext-bundle \
+  --namespace payments-client \
+  --from-file bundle.crt=ext-bundle.crt
+----
+
+. Create the pod.
+In the Envoy configuration, read the three lines that carry the design: `sni`, which is the only thing the gateway reads; `alpn_protocols: ["istio"]`, which steers the inbound sidecar to its mTLS filter chain; and the validation context named `spiffe://cluster.local`, which asks the agent for the mesh bundle it only has because the entry federates:
++
+[source,yaml]
+----
+include::example$infosec-sidecar.yaml[]
+----
++
+[source,bash,role=execute]
+----
+sed "s/APPS_DOMAIN/${APPS}/g" $MANIFESTS/infosec-sidecar.yaml \
+  | oc apply -f -
+----
+
+. Wait for the three containers:
++
+[source,bash,role=execute]
+----
+oc get pods --namespace payments-client --watch
+----
++
+Press `Ctrl+C` once the `batch` pod shows `3/3` and `Running`.
+
+. Check that the agent attested and issued Envoy an SVID:
++
+[source,bash,role=execute]
+----
+oc logs --namespace payments-client deploy/batch \
+  --container infosec-spire-agent \
+  | grep -E 'Node attestation was successful|SVID'
+----
++
+One line says node attestation succeeded, and the entry for `spiffe://ext.example/ns/payments-client/sa/batch` is listed.
++
+[source,bash,role=execute]
+----
+oc exec --namespace payments-client deploy/batch \
+  --container infosec-envoy -- \
+  curl -s 127.0.0.1:15000/certs \
+  | jq -r '.certificates[].cert_chain[].subject_alt_names[].uri'
+----
++
+It prints `spiffe://ext.example/ns/payments-client/sa/batch`.
+Envoy holds the external identity.
+
+[#exercise-3]
+== Exercise 3: Make the Call
+
+. From the application container, call the local port:
++
+[source,bash,role=execute]
+----
+oc exec --namespace payments-client deploy/batch \
+  --container app -- \
+  curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8080/
+----
++
+It prints `200`.
+The request left the pod as mTLS, went through the router and the gateway as opaque TLS, and was decrypted by the `payments` sidecar.
+
+. Read what the `payments` sidecar saw:
++
+[source,bash,role=execute]
+----
+oc logs --namespace payments deploy/payments \
+  --container istio-proxy --tail 5 \
+  | grep peer=
+----
++
+The line ends with `peer=spiffe://ext.example/ns/payments-client/sa/batch`.
+That is the external caller's real identity, read by the mesh workload's own proxy from the client certificate.
+No gateway re-signed it and no header carried it.
+
+. Confirm the gateway only saw bytes:
++
+[source,bash,role=execute]
+----
+oc logs --namespace istio-ingress \
+  deploy/infosec-passthrough-istio --tail 3
+----
++
+The gateway's own access log shows a TCP connection to the `payments` cluster with no method, no path and no peer identity: it had nothing to log but SNI.
+
+[#exercise-4]
+== Exercise 4: Prove Enforcement on Identity
+
+A valid certificate from a trusted domain is necessary but not sufficient.
+Change the policy to expect a different principal and watch the same caller get refused.
+
+. Replace the policy with one that names a principal nobody holds:
++
+[source,yaml]
+----
+include::example$authorization-policy-deny.yaml[]
+----
++
+[source,bash,role=execute]
+----
+oc apply -f $MANIFESTS/authorization-policy-deny.yaml
+----
+
+. Call again:
++
+[source,bash,role=execute]
+----
+oc exec --namespace payments-client deploy/batch \
+  --container app -- \
+  curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8080/
+----
++
+It prints `403`.
+The TLS handshake still succeeded, the sidecar still read the SPIFFE ID, and `AuthorizationPolicy` said no.
+
+. See the denial:
++
+[source,bash,role=execute]
+----
+oc logs --namespace payments deploy/payments \
+  --container istio-proxy --tail 5 \
+  | grep -E '403|RBAC'
+----
++
+The line shows `403` with the same `peer=spiffe://ext.example/...` as before.
+
+. Put the right policy back:
++
+[source,bash,role=execute]
+----
+oc apply -f $MANIFESTS/authorization-policy.yaml
+----
+
+== If the Handshake Fails
+
+The first thing to check is which inbound filter chain the `payments` sidecar picked.
+Under `STRICT`, Istio matches its mTLS chain on ALPN; a client that doesn't advertise `istio` can land on a chain that resets it.
+
+[source,bash,role=execute]
+----
+istioctl proxy-config listener deploy/payments \
+  --namespace payments \
+  --port 8080 \
+  --output json \
+  | jq -r '.[].filterChains[].filterChainMatch
+      | "\(.applicationProtocols) \(.transportProtocol)"'
+----
+
+Compare the ALPN values listed with what the InfoSec Envoy sends, and look at the Envoy side with `-l debug` if the sidecar logs `TLS error`.
+If the chain also requires Istio's metadata exchange, the fallback is a dedicated inbound port with a `Sidecar` resource and a `DestinationRule` that turns the exchange off for that port.
+
+.Reference only: the same check with openssl
+[%collapsible]
+====
+Envoy's own SVID can't be read from the pod as files, but you can fetch it from the agent's socket and replay the handshake by hand:
+
+[source,bash,role=execute]
+----
+oc exec --namespace payments-client deploy/batch \
+  --container infosec-spire-agent -- \
+  spire-agent api fetch x509 \
+    -socketPath /run/spire/sockets/agent.sock \
+    -write /tmp
+----
+
+Then copy `/tmp/svid.0.pem`, `/tmp/svid.0.key` and `/tmp/bundle.0.pem` out of the container and run `openssl s_client` against the gateway with `-cert`, `-key`, `-CAfile` and `-alpn istio`.
+====

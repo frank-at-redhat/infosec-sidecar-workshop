@@ -1,0 +1,13 @@
+# One registration entry per mesh pod that carries the
+# spire-managed-identity label, in the Istio SPIFFE ID format.
+apiVersion: spire.spiffe.io/v1alpha1
+kind: ClusterSPIFFEID
+metadata:
+  name: istio-workloads
+spec:
+  spiffeIDTemplate: >-
+    spiffe://{{ .TrustDomain }}/ns/{{ .PodMeta.Namespace }}/sa/{{ .PodSpec.ServiceAccountName }}
+  podSelector:
+    matchLabels:
+      spiffe.io/spire-managed-identity: "true"
+  # Module 5 adds federatesWith here.

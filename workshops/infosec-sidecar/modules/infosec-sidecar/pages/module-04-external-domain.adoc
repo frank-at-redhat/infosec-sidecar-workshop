@@ -1,0 +1,135 @@
+= External Trust Domain
+
+Stand up the SPIRE server that the external application trusts, in its own trust domain `ext.example`.
+In a customer environment this server runs wherever the application runs: a RHEL host, a VMware estate, another cluster.
+For the workshop it runs on the same OpenShift cluster, in a namespace with no mesh and no Zero Trust Workload Identity Manager, which keeps the two trust domains just as separate cryptographically while needing only one cluster.
+
+.Exercises on this page
+* <<exercise-1>>
+* <<exercise-2>>
+
+[#exercise-1]
+== Exercise 1: Run the External SPIRE Server
+
+Pick the tab for where the external side runs.
+The rest of the workshop assumes the in-cluster tab; the RHEL VM tab gives the same configuration as files for a host.
+
+[tabs]
+====
+In-cluster::
++
+--
+. Create the namespace, the server and a passthrough `Route` for its federation endpoint.
+Read the `federation` block of the configuration: the server publishes its own bundle on port 8443 with the `https_spiffe` profile and is told where the mesh publishes its bundle:
++
+[source,yaml]
+----
+include::example$ext-spire-server.yaml[]
+----
++
+[source,bash,role=execute]
+----
+sed "s/APPS_DOMAIN/${APPS}/g" $MANIFESTS/ext-spire-server.yaml \
+  | oc apply -f -
+----
+
+. Wait for it:
++
+[source,bash,role=execute]
+----
+oc rollout status statefulset/spire-server \
+  --namespace ext-spire \
+  --timeout 180s
+----
++
+It prints `statefulset rolling update complete 1 pods`.
+
+. Check that it is healthy and serving the `ext.example` domain:
++
+[source,bash,role=execute]
+----
+oc exec --namespace ext-spire spire-server-0 -- \
+  spire-server healthcheck
+----
++
+It prints `Server is healthy.`
+--
+RHEL VM::
++
+--
+. On a RHEL 9 host, download the SPIRE 1.13 release from the mirror your organisation uses, and unpack `spire-server` and `spire-agent` into `/usr/local/bin`.
+
+. Install the server configuration as `/etc/spire/server.conf`, replacing `MESH_APPS` with the cluster's `*.apps` domain:
++
+[source,hcl]
+----
+include::example$vm-spire-server.conf[]
+----
+
+. Install the agent configuration as `/etc/spire/agent.conf`.
+It attests to the local server with a join token and attests workloads by the path of their executable:
++
+[source,hcl]
+----
+include::example$vm-spire-agent.conf[]
+----
+
+. Start the server, generate a join token for the agent, and write the bootstrap bundle the agent needs:
++
+[source,bash,role=execute]
+----
+sudo spire-server run -config /etc/spire/server.conf &
+sudo spire-server bundle show > /etc/spire/bundle.crt
+TOKEN=$(sudo spire-server token generate \
+  -spiffeID spiffe://ext.example/node/vm1 \
+  | awk '{print $2}')
+sudo spire-agent run -config /etc/spire/agent.conf \
+  -joinToken $TOKEN &
+----
++
+Use `systemd` units for anything beyond a demo.
+
+. Open port 8443 on the host firewall so the cluster's SPIRE server can fetch the bundle, and make sure `federation.<apps domain>` on the cluster is reachable from the host.
+The federation URL for the mesh side is then `https://<host>:8443`.
+--
+====
+
+[#exercise-2]
+== Exercise 2: Read the External Root
+
+The external domain now has a root CA of its own that the mesh knows nothing about.
+Module 5 fixes that; this exercise just makes the gap visible.
+
+. Save the external root as a file; Module 6 uses it to bootstrap the agent inside the InfoSec sidecar:
++
+[source,bash,role=execute]
+----
+oc exec --namespace ext-spire spire-server-0 -- \
+  spire-server bundle show > ext-bundle.crt
+openssl x509 -in ext-bundle.crt -noout -subject
+----
++
+The subject is `CN = External SPIRE CA`, not the mesh CA from Module 1.
+
+. Read the external federation endpoint through its `Route`:
++
+[source,bash,role=execute]
+----
+curl -sk https://federation-ext.${APPS} | jq '.spiffe_sequence'
+----
++
+It prints `1`.
+
+. Compare the two roots side by side:
++
+[source,bash,role=execute]
+----
+oc get configmap spire-bundle \
+  --namespace zero-trust-workload-identity-manager \
+  --output jsonpath='{.data.bundle\.crt}' \
+  | openssl x509 -noout -fingerprint -sha256
+openssl x509 -in ext-bundle.crt -noout -fingerprint -sha256
+----
++
+Two different fingerprints.
+Right now a certificate from either domain means nothing to the other, which is exactly the state a customer is in before federation.

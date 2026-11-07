@@ -1,0 +1,163 @@
+= Service Mesh with SPIRE
+
+Install OpenShift Service Mesh 3 so that every sidecar gets its certificate from the SPIRE server you built in Module 1 instead of from `istiod`, then deploy the `payments` workload that the external application will call.
+
+.Exercises on this page
+* <<exercise-1>>
+* <<exercise-2>>
+* <<exercise-3>>
+
+[#exercise-1]
+== Exercise 1: Install Service Mesh
+
+. Install the Operator:
++
+[source,yaml]
+----
+include::example$ossm-operator.yaml[]
+----
++
+[source,bash,role=execute]
+----
+oc apply -f $MANIFESTS/ossm-operator.yaml
+----
+
+. Wait for it:
++
+[source,bash,role=execute]
+----
+oc get csv --namespace openshift-operators --watch
+----
++
+Press `Ctrl+C` once the `servicemeshoperator3` row shows `Succeeded`.
+
+. Create the control plane.
+The `spire` injection template mounts the SPIRE agent socket into every sidecar that asks for it, and the access log format prints the peer's SPIFFE ID on every request, which Module 6 relies on:
++
+[source,yaml]
+----
+include::example$istio-spire.yaml[]
+----
++
+[source,bash,role=execute]
+----
+oc apply -f $MANIFESTS/istio-spire.yaml
+oc apply -f $MANIFESTS/istiocni.yaml
+----
+
+. Wait for the control plane:
++
+[source,bash,role=execute]
+----
+oc wait istio default \
+  --for condition=Ready \
+  --timeout 300s
+----
++
+It prints `istio.sailoperator.io/default condition met`.
+
+[NOTE]
+====
+OpenShift Service Mesh using SPIRE as its certificate authority is a Technology Preview feature.
+The template above follows the upstream Istio integration; check the Service Mesh release notes for the supported form on the release you run.
+====
+
+[#exercise-2]
+== Exercise 2: Register Mesh Workloads with SPIRE
+
+SPIRE issues nothing until a registration entry says which pods get which identity.
+The SPIRE Controller Manager that ships with Zero Trust Workload Identity Manager turns a `ClusterSPIFFEID` resource into entries, one per matching pod.
+
+. Create a `ClusterSPIFFEID` that gives every labelled mesh pod the identity Istio expects, `spiffe://cluster.local/ns/<namespace>/sa/<service account>`:
++
+[source,yaml]
+----
+include::example$clusterspiffeid-mesh.yaml[]
+----
++
+[source,bash,role=execute]
+----
+oc apply -f $MANIFESTS/clusterspiffeid-mesh.yaml
+----
+
+. Check that it was accepted:
++
+[source,bash,role=execute]
+----
+oc get clusterspiffeid istio-workloads
+----
++
+It lists the resource with no error in the `STATUS` column.
+Entries appear only once matching pods exist, which the next exercise creates.
+
+[#exercise-3]
+== Exercise 3: Deploy the Payments Workload
+
+. Create the namespace, the workload and its service.
+The namespace label `infosec.example/passthrough` is the gate the ingress gateway checks in Module 3, and the pod annotation asks for both the `sidecar` and the `spire` templates:
++
+[source,yaml]
+----
+include::example$payments.yaml[]
+----
++
+[source,bash,role=execute]
+----
+oc apply -f $MANIFESTS/payments.yaml
+----
+
+. Require mTLS for everything that reaches the namespace:
++
+[source,yaml]
+----
+include::example$peer-authentication.yaml[]
+----
++
+[source,bash,role=execute]
+----
+oc apply -f $MANIFESTS/peer-authentication.yaml
+----
+
+. Wait for the pod; it has two containers once the sidecar is injected:
++
+[source,bash,role=execute]
+----
+oc get pods --namespace payments --watch
+----
++
+Press `Ctrl+C` once the `payments` pod shows `2/2` and `Running`.
+
+. Read the certificate the sidecar is serving and check who issued it:
++
+[source,bash,role=execute]
+----
+istioctl proxy-config secret deploy/payments \
+  --namespace payments \
+  --output json \
+  | jq -r '.dynamicActiveSecrets[]
+      | select(.name=="default")
+      | .secret.tlsCertificate.certificateChain.inlineBytes' \
+  | base64 -d \
+  | openssl x509 -noout -issuer -ext subjectAltName
+----
++
+The issuer is `CN = Mesh SPIRE CA` and the subject alternative name is `URI:spiffe://cluster.local/ns/payments/sa/payments`.
+That one line is the whole point of this module: the sidecar's identity came from SPIRE, not from `istiod`.
+
+. Confirm SPIRE has the matching entry:
++
+[source,bash,role=execute]
+----
+oc exec --namespace zero-trust-workload-identity-manager \
+  spire-server-0 --container spire-server -- \
+  spire-server entry show \
+    -spiffeID spiffe://cluster.local/ns/payments/sa/payments
+----
++
+One entry is shown, with a `k8s:ns:payments` selector among others.
+
+[TIP]
+====
+If the sidecar still shows an `istiod`-issued certificate (issuer `O = cluster.local`), the pod didn't get the `spire` template.
+Check the annotation on the pod, not the Deployment, and that the `workload-socket` volume is mounted in `istio-proxy`.
+====

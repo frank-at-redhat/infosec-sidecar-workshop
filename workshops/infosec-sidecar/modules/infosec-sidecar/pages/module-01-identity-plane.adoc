@@ -1,0 +1,183 @@
+= Identity Plane
+
+Install Zero Trust Workload Identity Manager and bring up a SPIRE server, agents and the SPIFFE CSI driver for the `cluster.local` trust domain.
+Everything in the mesh gets its identity from this plane in the modules that follow.
+
+.Exercises on this page
+* <<exercise-0>>
+* <<exercise-1>>
+* <<exercise-2>>
+* <<exercise-3>>
+
+[#exercise-0]
+== Exercise 0: Get the Manifests
+
+Every manifest the workshop applies is shown on the page and also lives in the workshop repository, so you apply files rather than retype YAML.
+
+. Clone the repository:
++
+[source,bash,role=execute]
+----
+git clone https://github.com/frank-at-redhat/infosec-sidecar-workshop.git
+cd infosec-sidecar-workshop
+----
+
+. Point a variable at the manifests folder:
++
+[source,bash,role=execute]
+----
+export MANIFESTS=\
+  $PWD/workshops/infosec-sidecar/modules/infosec-sidecar/examples
+ls $MANIFESTS
+----
++
+It lists the YAML files you'll apply.
+Keep `MANIFESTS` set for the whole workshop; set it again in any new terminal.
+
+[#exercise-1]
+== Exercise 1: Install the Operator
+
+. Create the namespace, the `OperatorGroup` and the `Subscription`:
++
+[source,yaml]
+----
+include::example$ztwim-operator.yaml[]
+----
++
+[source,bash,role=execute]
+----
+oc apply -f $MANIFESTS/ztwim-operator.yaml
+----
+
+. Wait for the Operator to install:
++
+[source,bash,role=execute]
+----
+oc get csv \
+  --namespace zero-trust-workload-identity-manager \
+  --watch
+----
++
+Press `Ctrl+C` once the `zero-trust-workload-identity-manager` row shows `Succeeded`.
+
+[NOTE]
+====
+The channel name follows the Operator's release.
+If `stable` isn't offered on your cluster, list the channels and pick the current one:
+
+[source,bash,role=execute]
+----
+oc get packagemanifest zero-trust-workload-identity-manager \
+  --namespace openshift-marketplace \
+  --output jsonpath='{.status.channels[*].name}{"\n"}'
+----
+====
+
+[#exercise-2]
+== Exercise 2: Create the Trust Domain
+
+The `ZeroTrustWorkloadIdentityManager` resource sets the trust domain and cluster name.
+Both are immutable, so this is the one decision in the workshop you can't change later.
+
+. Create it with the trust domain `cluster.local`, which is what Istio expects by default:
++
+[source,yaml]
+----
+include::example$ztwim-cluster.yaml[]
+----
++
+[source,bash,role=execute]
+----
+oc apply -f $MANIFESTS/ztwim-cluster.yaml
+----
+
+. Save the cluster's application domain in a variable; the next step and later modules use it:
++
+[source,bash,role=execute]
+----
+export APPS=$(oc get ingresses.config/cluster \
+  --output jsonpath='{.spec.domain}')
+echo $APPS
+----
++
+It prints something like `apps.ocp.example.com`.
+
+. Create the SPIRE server.
+`APPS_DOMAIN` in the file is replaced with your domain on the way in:
++
+[source,yaml]
+----
+include::example$spire-server.yaml[]
+----
++
+[source,bash,role=execute]
+----
+sed "s/APPS_DOMAIN/${APPS}/" $MANIFESTS/spire-server.yaml \
+  | oc apply -f -
+----
++
+The federation block matters for Module 5: `https_spiffe` makes the server authenticate to other SPIRE servers with its own SVID, and `managedRoute` publishes its bundle at `federation.<apps domain>`.
+The profile is immutable too.
+
+. Create the agent and the CSI driver:
++
+[source,yaml]
+----
+include::example$spire-agent.yaml[]
+----
++
+[source,yaml]
+----
+include::example$spiffe-csi-driver.yaml[]
+----
++
+[source,bash,role=execute]
+----
+oc apply -f $MANIFESTS/spire-agent.yaml
+oc apply -f $MANIFESTS/spiffe-csi-driver.yaml
+----
+
+. Check that the server, the agents and the driver are ready:
++
+[source,bash,role=execute]
+----
+oc get zerotrustworkloadidentitymanager cluster --output json \
+  | jq -r '.status.operands[] | "\(.kind)\t\(.ready)"'
+----
++
+`SpireServer`, `SpireAgent` and `SpiffeCSIDriver` each show `true`.
+The first start takes two to three minutes while the server generates its CA and the agents attest.
+
+[#exercise-3]
+== Exercise 3: Read the Trust Bundle
+
+The server publishes its root CA two ways: a `ConfigMap` for workloads on the cluster, and the federation endpoint for other SPIRE servers.
+Both carry the same certificate.
+
+. Read the root CA from the `ConfigMap`:
++
+[source,bash,role=execute]
+----
+oc get configmap spire-bundle \
+  --namespace zero-trust-workload-identity-manager \
+  --output jsonpath='{.data.bundle\.crt}' \
+  | openssl x509 -noout -subject -dates
+----
++
+The subject is `CN = Mesh SPIRE CA`, the subject you set on the server.
+
+. Read the same root from the federation endpoint:
++
+[source,bash,role=execute]
+----
+curl -sk https://federation.${APPS} | jq '.keys[0].use, .spiffe_sequence'
+----
++
+It prints `"x509-svid"` and a sequence number.
+The `-k` is expected: with the `https_spiffe` profile the endpoint presents a SPIFFE certificate, not one from a web CA, and your workstation has no reason to trust it yet.
+
+[TIP]
+====
+Keep the `APPS` variable in your shell for the rest of the workshop.
+If you open a new terminal, set it again with the command from Exercise 2.
+====

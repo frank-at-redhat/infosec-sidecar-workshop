@@ -1,0 +1,7 @@
+spec:
+  federation:
+    federatesWith:
+    - trustDomain: ext.example
+      bundleEndpointUrl: https://federation-ext.APPS_DOMAIN
+      bundleEndpointProfile: https_spiffe
+      endpointSpiffeId: spiffe://ext.example/spire/server

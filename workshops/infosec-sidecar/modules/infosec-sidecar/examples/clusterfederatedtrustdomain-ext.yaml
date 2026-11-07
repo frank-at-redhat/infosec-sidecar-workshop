@@ -1,0 +1,14 @@
+# Tells the mesh SPIRE server where ext.example publishes its bundle
+# and bootstraps trust with the bundle fetched by hand (EXT_BUNDLE).
+apiVersion: spire.spiffe.io/v1alpha1
+kind: ClusterFederatedTrustDomain
+metadata:
+  name: ext-example
+spec:
+  trustDomain: ext.example
+  bundleEndpointURL: https://federation-ext.APPS_DOMAIN
+  bundleEndpointProfile:
+    type: https_spiffe
+    endpointSPIFFEID: spiffe://ext.example/spire/server
+  trustDomainBundle: |
+    EXT_BUNDLE

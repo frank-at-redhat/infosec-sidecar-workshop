@@ -16,7 +16,7 @@ asciidoc:
     # and the image is a fallback for local builds; the Pages and Release workflows
     # pass the published image's name and tag.
     workshop-name: "infosec-sidecar-workshop"
-    extra-cli-tools: ""
+    extra-cli-tools: "`istioctl`, `spire-server`, `spire-agent`, `openssl`"
     tools-image-basename: ghcr.io/frank-at-redhat/infosec-sidecar-workshop-tools
     tools-image-tag: latest
     # The deployment steps on the instructor guide: the site image and the chart version,

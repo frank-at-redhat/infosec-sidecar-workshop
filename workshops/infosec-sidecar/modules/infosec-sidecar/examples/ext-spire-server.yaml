@@ -1,0 +1,164 @@
+# The external trust domain's SPIRE server, run on the workshop
+# cluster to stand in for a server the customer would run elsewhere.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ext-spire
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: spire-server
+  namespace: ext-spire
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ext-spire-server
+rules:
+- apiGroups: ["authentication.k8s.io"]
+  resources: ["tokenreviews"]
+  verbs: ["create"]
+- apiGroups: [""]
+  resources: ["pods", "nodes"]
+  verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ext-spire-server
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: ext-spire-server
+subjects:
+- kind: ServiceAccount
+  name: spire-server
+  namespace: ext-spire
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: spire-server
+  namespace: ext-spire
+data:
+  server.conf: |
+    server {
+      bind_address = "0.0.0.0"
+      bind_port = "8081"
+      trust_domain = "ext.example"
+      data_dir = "/run/spire/data"
+      log_level = "INFO"
+      default_x509_svid_ttl = "1h"
+      ca_subject {
+        country = ["US"]
+        organization = ["Workshop"]
+        common_name = "External SPIRE CA"
+      }
+      federation {
+        bundle_endpoint {
+          address = "0.0.0.0"
+          port = 8443
+          profile "https_spiffe" {}
+        }
+        federates_with "cluster.local" {
+          bundle_endpoint_url = "https://federation.APPS_DOMAIN"
+          bundle_endpoint_profile "https_spiffe" {
+            endpoint_spiffe_id = "spiffe://cluster.local/spire/server"
+          }
+        }
+      }
+    }
+    plugins {
+      DataStore "sql" {
+        plugin_data {
+          database_type = "sqlite3"
+          connection_string = "/run/spire/data/datastore.sqlite3"
+        }
+      }
+      NodeAttestor "k8s_psat" {
+        plugin_data {
+          clusters = {
+            "ext" = {
+              # The InfoSec sidecar pod (Module 6) attests as this account.
+              service_account_allow_list = ["payments-client:batch"]
+            }
+          }
+        }
+      }
+      KeyManager "disk" {
+        plugin_data {
+          keys_path = "/run/spire/data/keys.json"
+        }
+      }
+    }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: spire-server
+  namespace: ext-spire
+spec:
+  serviceName: spire-server
+  replicas: 1
+  selector:
+    matchLabels:
+      app: spire-server
+  template:
+    metadata:
+      labels:
+        app: spire-server
+    spec:
+      serviceAccountName: spire-server
+      containers:
+      - name: spire-server
+        image: ghcr.io/spiffe/spire-server:1.13.3
+        args: ["-config", "/run/spire/config/server.conf"]
+        ports:
+        - containerPort: 8081
+          name: grpc
+        - containerPort: 8443
+          name: federation
+        volumeMounts:
+        - name: config
+          mountPath: /run/spire/config
+          readOnly: true
+        - name: data
+          mountPath: /run/spire/data
+      volumes:
+      - name: config
+        configMap:
+          name: spire-server
+      - name: data
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: spire-server
+  namespace: ext-spire
+spec:
+  selector:
+    app: spire-server
+  ports:
+  - name: grpc
+    port: 8081
+    targetPort: 8081
+  - name: federation
+    port: 8443
+    targetPort: 8443
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: federation
+  namespace: ext-spire
+spec:
+  host: federation-ext.APPS_DOMAIN
+  to:
+    kind: Service
+    name: spire-server
+  port:
+    targetPort: federation
+  tls:
+    termination: passthrough

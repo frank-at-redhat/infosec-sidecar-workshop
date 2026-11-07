@@ -1,10 +1,24 @@
 = InfoSec Sidecar
 
-// One or two sentences: what this workshop covers and what attendees can do after it.
-This workshop covers ...
+This workshop builds the InfoSec sidecar pattern end to end: an application outside the mesh, holding a SPIFFE X.509 identity from its own SPIRE server, calls a service on Red Hat OpenShift Service Mesh 3 over mTLS that the ingress gateway passes through untouched.
+By the end you can stand up the identity plane with Zero Trust Workload Identity Manager, federate it with an external trust domain, route a TLS session through the gateway on SNI alone, and prove with Envoy's own logs that the mesh workload saw the caller's real SPIFFE ID.
 
 Before you start, make sure your environment meets the xref:setup-requirements.adoc[Setup Requirements].
 
+== What You Build
+
+image::infosec-sidecar-flow.svg[InfoSec sidecar flow,720]
+
+Solid arrows are one TLS session: it starts in the InfoSec sidecar next to the external application and ends in the `istio-proxy` of the mesh workload.
+Dashed arrows are the identity plane that hands out SVIDs and trust bundles.
+The ingress gateway sits on the data path but never holds a key for it.
+
 == Modules
 
-. xref:module-01-first-steps.adoc[First Steps]: what the first module covers.
+. xref:module-01-identity-plane.adoc[Identity Plane]: install Zero Trust Workload Identity Manager and bring up SPIRE for the `cluster.local` trust domain.
+. xref:module-02-mesh.adoc[Service Mesh with SPIRE]: install OpenShift Service Mesh 3 with SPIRE as its CA and deploy the `payments` workload.
+. xref:module-03-ingress-passthrough.adoc[Ingress Passthrough]: expose `payments` through a Gateway API TLS listener that routes on SNI without terminating.
+. xref:module-04-external-domain.adoc[External Trust Domain]: stand up the `ext.example` SPIRE server that the external application trusts.
+. xref:module-05-federation.adoc[Federation]: exchange trust bundles between the two SPIRE servers and register both workloads.
+. xref:module-06-infosec-sidecar.adoc[InfoSec Sidecar]: run the sidecar, make the call, and read the caller's identity off the mesh sidecar's logs.
+. xref:module-07-cleanup.adoc[Clean Up]: remove everything the workshop created.

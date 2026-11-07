@@ -10,10 +10,20 @@ The instructor prepares the cluster and accounts ahead of time; attendees prepar
 |Item |Requirement
 
 |Platform
-|The OpenShift version and platform the workshop was validated on.
+|OpenShift Container Platform 4.21 or later, on any platform.
+Validated on bare metal and vSphere.
+A disconnected cluster works once the images below are mirrored.
 
 |Size
-|The nodes, vCPUs and quota each attendee or pair needs.
+|One cluster per attendee or pair.
+Three worker nodes with 4 vCPU and 16 GiB each is enough; the workshop's own footprint is under 2 vCPU and 4 GiB.
+
+|Storage
+|A default `StorageClass` that can bind a 5 GiB `ReadWriteOnce` claim for the SPIRE server.
+
+|Ingress
+|The default OpenShift router.
+Module 3 exposes the mesh gateway with a passthrough `Route`; MetalLB is an alternative shown in a tab, not a requirement.
 |===
 
 == Operators and Cluster Components
@@ -22,10 +32,28 @@ The instructor prepares the cluster and accounts ahead of time; attendees prepar
 |===
 |Component |Installed by |Used in
 
-|_Name of the Operator or component_
-|The facilitator, or the attendee in a given exercise
-|The module that needs it
+|Zero Trust Workload Identity Manager 1.0 or later (`zero-trust-workload-identity-manager`, channel `stable`)
+|The attendee, in Module 1
+|Modules 1 to 6
+
+|Red Hat OpenShift Service Mesh 3.4 or later (`servicemeshoperator3`, channel `stable`)
+|The attendee, in Module 2
+|Modules 2 to 6
+
+|Kubernetes Gateway API CRDs (`gateway.networking.k8s.io`), including `TLSRoute`
+|OpenShift ships the standard channel; the attendee adds the experimental channel's `TLSRoute` CRD in Module 3
+|Module 3
+
+|Kiali (optional)
+|The instructor, if wanted for the walkthrough
+|Module 6, to show the external caller
 |===
+
+[NOTE]
+====
+Service Mesh using SPIRE through Zero Trust Workload Identity Manager as its certificate authority is a Technology Preview feature in OpenShift Service Mesh 3.4.
+Say so when you deliver the workshop to a customer, and check the current release notes for the status.
+====
 
 == Attendee Workstation
 
@@ -36,25 +64,97 @@ The instructor prepares the cluster and accounts ahead of time; attendees prepar
 |`oc`
 |Matching the cluster version
 |Every module
+
+|`istioctl`
+|Matching the Service Mesh release (3.4 ships Istio 1.27)
+|Modules 2, 3 and 6, to read Envoy's configuration
+
+|`openssl`
+|Any current version
+|Modules 5 and 6, to test the TLS handshake by hand
+
+|`jq`
+|1.6 or later
+|Modules 5 and 6
 |===
+
+Attendees who don't want to install these run the workshop CLI tools image on the cluster instead, which has `oc`, `istioctl`, `jq` and `openssl` already.
+ifdef::workshop-name[]
+See xref:ROOT:cli-tools.adoc[Shared CLI tools].
+endif::[]
 
 == Attendee Accounts, Projects and Roles
 
-Who needs which role, on the cluster and in any cloud or external account.
+Every attendee needs `cluster-admin` on their cluster: the workshop installs two Operators, creates cluster-scoped `ClusterFederatedTrustDomain` and `ClusterSPIFFEID` resources, and adds a CRD.
 
 == Network and Image Access
 
-The hosts that workstations and the cluster must reach, and the images the exercises pull.
+The cluster pulls these images.
+Mirror them for a disconnected cluster; `images-mirror.txt` in the release lists them in a form `oc mirror` accepts.
+
+[cols="2,2",options="header"]
+|===
+|Image |Used for
+
+|`registry.redhat.io/zero-trust-workload-identity-manager/*`
+|The Operator and its SPIRE operands
+
+|`registry.redhat.io/openshift-service-mesh/*`
+|The Operator, `istiod`, the sidecar and gateway proxy
+
+|`ghcr.io/spiffe/spire-server:1.13.3`
+|The external trust domain's SPIRE server (Module 4)
+
+|`ghcr.io/spiffe/spire-agent:1.13.3`
+|The SPIRE agent inside the InfoSec sidecar (Module 6)
+
+|`docker.io/envoyproxy/envoy:v1.33.0`
+|The Envoy inside the InfoSec sidecar (Module 6)
+
+|`registry.access.redhat.com/ubi9/httpd-24`
+|The `payments` sample workload (Module 2)
+|===
+
+Workstations need to reach the cluster API and the cluster's `*.apps` domain.
+Nothing in the workshop needs the internet from the cluster once the images are available.
 
 == Verification Checklist
 
 Each attendee runs these before the workshop starts.
 
-. Check that you are logged in to the cluster:
+. Check that you are logged in to the cluster as a cluster administrator:
 +
 [source,bash,role=execute]
 ----
-oc whoami
+oc auth can-i create clusterfederatedtrustdomains
 ----
 +
-It prints your user name.
+It prints `yes`.
+
+. Check that a default storage class exists:
++
+[source,bash,role=execute]
+----
+oc get storageclass
+----
++
+One class is marked `(default)`.
+
+. Check the cluster version:
++
+[source,bash,role=execute]
+----
+oc get clusterversion version \
+  --output jsonpath='{.status.desired.version}{"\n"}'
+----
++
+It prints `4.21` or later.
+
+. Check that `istioctl` is installed:
++
+[source,bash,role=execute]
+----
+istioctl version --remote=false
+----
++
+It prints a client version.

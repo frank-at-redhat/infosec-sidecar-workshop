@@ -1,0 +1,20 @@
+# Same policy with a principal that nobody holds: proves the
+# sidecar enforces on the SPIFFE ID, not just on a valid cert.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: payments-ingress
+  namespace: payments
+spec:
+  selector:
+    matchLabels:
+      app: payments
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        principals:
+        - ext.example/ns/payments-client/sa/someone-else
+    to:
+    - operation:
+        ports: ["8080"]

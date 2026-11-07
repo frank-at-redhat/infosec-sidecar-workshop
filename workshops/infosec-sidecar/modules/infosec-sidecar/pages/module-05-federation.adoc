@@ -1,0 +1,176 @@
+= Federation
+
+Make each SPIRE server trust the other's root, so that a certificate from `ext.example` means something to a sidecar in `cluster.local` and the other way round.
+Then register the two workloads that will talk: the `payments` sidecar on the mesh side and the InfoSec sidecar on the external side.
+
+.Exercises on this page
+* <<exercise-1>>
+* <<exercise-2>>
+* <<exercise-3>>
+
+[#exercise-1]
+== Exercise 1: Mesh Trusts External
+
+Federation bootstraps by hand once: you fetch the remote bundle and hand it to the local server.
+After that the servers refresh each other's bundle on their own, authenticated by the `https_spiffe` profile, so a root rotation on either side propagates without a person in the loop.
+
+. Fetch the external bundle in SPIFFE bundle format:
++
+[source,bash,role=execute]
+----
+curl -sk https://federation-ext.${APPS} > ext-bundle.json
+jq -c . ext-bundle.json | cut -c1-80
+----
++
+It prints the start of a JSON document with a `keys` array.
+
+. Create the `ClusterFederatedTrustDomain`.
+The bundle goes in as the bootstrap, indented under `trustDomainBundle`:
++
+[source,yaml]
+----
+include::example$clusterfederatedtrustdomain-ext.yaml[]
+----
++
+[source,bash,role=execute]
+----
+sed -e "s/APPS_DOMAIN/${APPS}/" \
+    -e "s|EXT_BUNDLE|$(jq -c . ext-bundle.json)|" \
+    $MANIFESTS/clusterfederatedtrustdomain-ext.yaml \
+  | oc apply -f -
+----
+
+. Tell the mesh SPIRE server to keep refreshing that bundle:
++
+[source,yaml]
+----
+include::example$spire-server-federation-patch.yaml[]
+----
++
+[source,bash,role=execute]
+----
+oc patch spireserver cluster --type merge \
+  --patch "$(sed "s/APPS_DOMAIN/${APPS}/" \
+    $MANIFESTS/spire-server-federation-patch.yaml)"
+----
+
+. Check that the mesh server now holds two bundles:
++
+[source,bash,role=execute]
+----
+oc exec --namespace zero-trust-workload-identity-manager \
+  spire-server-0 --container spire-server -- \
+  spire-server bundle list
+----
++
+It lists `spiffe://ext.example` with a PEM certificate.
+If it doesn't appear within a minute, read the SPIRE server log for `federation`; the usual cause is the external `Route` not being reachable from the pod network.
+
+[#exercise-2]
+== Exercise 2: External Trusts Mesh
+
+. Fetch the mesh bundle and load it into the external server as a bootstrap:
++
+[source,bash,role=execute]
+----
+curl -sk https://federation.${APPS} > mesh-bundle.json
+oc exec -i --namespace ext-spire spire-server-0 -- \
+  spire-server bundle set \
+    -format spiffe \
+    -id spiffe://cluster.local < mesh-bundle.json
+----
++
+It prints `bundle set.`
+The external server's configuration from Module 4 already names the mesh endpoint in `federates_with`, so from here it refreshes on its own.
+
+. Check:
++
+[source,bash,role=execute]
+----
+oc exec --namespace ext-spire spire-server-0 -- \
+  spire-server bundle list
+----
++
+It lists `spiffe://cluster.local`.
+
+[#exercise-3]
+== Exercise 3: Register Both Workloads
+
+Trusting a root is not enough: each workload's registration entry must say which foreign domains its SVID may be used with, or the agent never hands the foreign bundle to Envoy.
+
+. On the mesh side, add `federatesWith` to the `ClusterSPIFFEID` from Module 2:
++
+[source,yaml]
+----
+include::example$clusterspiffeid-mesh-federated.yaml[]
+----
++
+[source,bash,role=execute]
+----
+oc apply -f $MANIFESTS/clusterspiffeid-mesh-federated.yaml
+----
+
+. Confirm the `payments` entry now federates:
++
+[source,bash,role=execute]
+----
+oc exec --namespace zero-trust-workload-identity-manager \
+  spire-server-0 --container spire-server -- \
+  spire-server entry show \
+    -spiffeID spiffe://cluster.local/ns/payments/sa/payments \
+  | grep FederatesWith
+----
++
+It prints `FederatesWith    : ext.example`.
+
+. On the external side there is no controller manager, so register by hand.
+First an alias for the node the InfoSec sidecar's agent will attest as, then the workload itself, matched by the path of its executable and allowed to federate with the mesh:
++
+[source,bash,role=execute]
+----
+oc exec --namespace ext-spire spire-server-0 -- \
+  spire-server entry create -node \
+    -spiffeID spiffe://ext.example/node/infosec \
+    -selector k8s_psat:cluster:ext
+----
++
+[source,bash,role=execute]
+----
+oc exec --namespace ext-spire spire-server-0 -- \
+  spire-server entry create \
+    -parentID spiffe://ext.example/node/infosec \
+    -spiffeID spiffe://ext.example/ns/payments-client/sa/batch \
+    -selector unix:path:/usr/local/bin/envoy \
+    -federatesWith spiffe://cluster.local
+----
++
+Each command prints `Entry ID` and the entry's details.
++
+[NOTE]
+====
+On a RHEL host the first command isn't needed: the agent attested with a join token already has the SPIFFE ID `spiffe://ext.example/node/vm1`, so use that as `-parentID`.
+====
+
+. Check that the `payments` sidecar received the external root.
+With SPIRE federation the sidecar's `ROOTCA` secret becomes a SPIFFE validator that lists one root per trust domain:
++
+[source,bash,role=execute]
+----
+istioctl proxy-config secret deploy/payments \
+  --namespace payments \
+  --output json \
+  | jq -r '.dynamicActiveSecrets[]
+      | select(.name=="ROOTCA")
+      | .secret.validationContext
+      | ..|.trustDomains? // empty
+      | .[].name'
+----
++
+It prints `cluster.local` and `ext.example`.
+
+[TIP]
+====
+Only `cluster.local` showing means the agent served the single-domain bundle instead of all bundles.
+The upstream Istio integration sets `default_all_bundles_name = "ROOTCA"` in the agent's SDS configuration so that Istio's request for `ROOTCA` returns every federated bundle.
+Check the `SpireAgent` resource for an SDS setting that controls this on your Zero Trust Workload Identity Manager release, and restart the `payments` pod after changing it.
+====

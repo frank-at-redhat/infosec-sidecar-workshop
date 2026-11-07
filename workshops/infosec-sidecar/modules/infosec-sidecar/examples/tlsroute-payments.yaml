@@ -1,0 +1,15 @@
+apiVersion: gateway.networking.k8s.io/v1alpha2
+kind: TLSRoute
+metadata:
+  name: payments
+  namespace: payments
+spec:
+  parentRefs:
+  - name: infosec-passthrough
+    namespace: istio-ingress
+  hostnames:
+  - payments.APPS_DOMAIN
+  rules:
+  - backendRefs:
+    - name: payments
+      port: 8080

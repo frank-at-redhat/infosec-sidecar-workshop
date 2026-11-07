@@ -1,0 +1,27 @@
+apiVersion: operator.openshift.io/v1alpha1
+kind: SpireServer
+metadata:
+  name: cluster
+spec:
+  logLevel: info
+  logFormat: text
+  jwtIssuer: https://oidc-discovery.APPS_DOMAIN
+  caValidity: 24h
+  defaultX509Validity: 1h
+  defaultJWTValidity: 5m
+  caSubject:
+    country: US
+    organization: Workshop
+    commonName: Mesh SPIRE CA
+  persistence:
+    size: 5Gi
+    accessMode: ReadWriteOnce
+  datastore:
+    databaseType: sqlite3
+    connectionString: /run/spire/data/datastore.sqlite3
+  federation:
+    bundleEndpoint:
+      profile: https_spiffe
+      refreshHint: 300
+    federatesWith: []
+    managedRoute: "true"

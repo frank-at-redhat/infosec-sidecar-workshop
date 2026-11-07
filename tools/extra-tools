@@ -1,1 +1,4 @@
-# One command per line, for each tool tools/install.sh installs.
+istioctl
+spire-server
+spire-agent
+openssl

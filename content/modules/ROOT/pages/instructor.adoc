@@ -45,4 +45,54 @@ include::partial$deploy-workshop.adoc[]
 
 == Delivery Notes
 
-// Timings, pauses, common mistakes and how to recover from them.
+Timings, for a group that follows along on their own clusters:
+
+[cols="1,1,3",options="header"]
+|===
+|Module |Time |Notes
+
+|1 Identity Plane
+|40 min
+|Operator install plus two to three minutes for the SPIRE server to generate its CA. Immutable fields: trust domain and federation profile.
+Say this out loud before anyone applies the file.
+
+|2 Service Mesh with SPIRE
+|45 min
+|The `spire` injection template is the step that goes wrong most often: the annotation must be on the pod template, not the Deployment.
+Technology Preview; say so.
+
+|3 Ingress Passthrough
+|30 min
+|The `openssl` check at the end is the demo moment: a certificate from two hops away.
+Have attendees read the SAN out loud.
+
+|4 External Trust Domain
+|25 min
+|Explain why it runs on the same cluster.
+Customers always ask; the answer is that a trust domain is a cryptographic boundary, not a network one.
+
+|5 Federation
+|40 min
+|The manual bootstrap is intentional: it is the one moment a person vouches for the other side.
+The `ROOTCA` check with two trust domains is where the SDS `default_all_bundles_name` question surfaces.
+
+|6 InfoSec Sidecar
+|45 min
+|Exercise 3 is the payoff.
+Have everyone find `peer=spiffe://ext.example/...` in the log before moving to the deny test.
+
+|7 Clean Up
+|10 min
+|Order matters; the `ZeroTrustWorkloadIdentityManager` delete takes everything under it.
+|===
+
+Good places to pause: after Module 3 (the mesh side is complete) and after Module 5 (trust is established, nothing has called yet).
+
+Common mistakes and how to recover:
+
+* `APPS` or `MANIFESTS` unset in a new terminal: every `sed` then produces a file with `APPS_DOMAIN` in it. Set both again from Module 1.
+* The `payments` sidecar shows an `istiod`-issued certificate: the `spire` template didn't apply. Delete the pod after fixing the annotation.
+* `ClusterFederatedTrustDomain` never shows a synced bundle: the pod network can't reach `federation-ext.<apps>`. Test with `curl` from the SPIRE server pod.
+* The call in Module 6 resets at the handshake: see "If the Handshake Fails" on that page. It is the one open question in the pattern and worth discussing rather than hiding.
+
+For a disconnected delivery, copy the `examples/` folder of the workshop into `downloads/` as a tarball before cutting the release so attendees can get the manifests from the offline bundle instead of cloning the repository.

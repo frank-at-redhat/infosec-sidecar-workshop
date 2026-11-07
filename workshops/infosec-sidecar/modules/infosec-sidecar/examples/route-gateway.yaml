@@ -1,0 +1,16 @@
+# Hands every TLS session for payments.<apps> to the gateway
+# without terminating it: the router matches SNI, nothing more.
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: payments-passthrough
+  namespace: istio-ingress
+spec:
+  host: payments.APPS_DOMAIN
+  to:
+    kind: Service
+    name: infosec-passthrough-istio
+  port:
+    targetPort: 443
+  tls:
+    termination: passthrough

@@ -1,0 +1,41 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: istio-system
+---
+apiVersion: sailoperator.io/v1
+kind: Istio
+metadata:
+  name: default
+spec:
+  namespace: istio-system
+  updateStrategy:
+    type: InPlace
+  values:
+    meshConfig:
+      trustDomain: cluster.local
+      accessLogFile: /dev/stdout
+      accessLogFormat: >-
+        [%START_TIME%] "%REQ(:METHOD)% %REQ(X-ENVOY-ORIGINAL-PATH?:PATH)%
+        %PROTOCOL%" %RESPONSE_CODE% %RESPONSE_FLAGS%
+        peer=%DOWNSTREAM_PEER_URI_SAN% %UPSTREAM_CLUSTER%
+    sidecarInjectorWebhook:
+      templates:
+        spire: |
+          labels:
+            spiffe.io/spire-managed-identity: "true"
+          spec:
+            # istio-proxy is a native sidecar, so it lives in
+            # initContainers. Use containers: if native sidecars
+            # are off in your control plane.
+            initContainers:
+            - name: istio-proxy
+              volumeMounts:
+              - name: workload-socket
+                mountPath: /run/secrets/workload-spiffe-uds
+                readOnly: true
+            volumes:
+            - name: workload-socket
+              csi:
+                driver: csi.spiffe.io
+                readOnly: true
