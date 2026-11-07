@@ -1,0 +1,4 @@
+// The pages are listed in partials/nav-items.adoc, which the full site's
+// navigation also includes, under Workshop Content.
+.xref:index.adoc[InfoSec Sidecar]
+include::partial$nav-items.adoc[]

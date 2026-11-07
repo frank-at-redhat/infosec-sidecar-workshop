@@ -1,0 +1,16 @@
+= Workshop Attendee Guide
+
+== How the Workshop Works
+
+Each workshop is a set of modules, and each page starts with a list of the exercises on it.
+Every exercise ends with a check that it worked.
+Copy each command with the button on its code block and run it as it is, unless the step says to change something.
+
+Before you start, run the verification checklist at the end of the setup requirements for your workshop.
+
+You don't have to install the command-line tools on your laptop: xref:cli-tools.adoc[Shared CLI tools] shows how to run them in a pod on the cluster.
+
+== Workshops
+
+* xref:infosec-sidecar:index.adoc[InfoSec Sidecar]
+// add-workshop.py adds workshops above this line

@@ -1,0 +1,35 @@
+---
+site:
+  title: "InfoSec Sidecar Workshop"
+  url: "https://frank-at-redhat.github.io/infosec-sidecar-workshop"
+  start_page: ROOT::index.adoc
+
+content:
+  sources:
+    # Each workshop under workshops/, then the home part, which must stay last.
+    - url: .
+      start_path: workshops/infosec-sidecar
+    # add-workshop.py adds workshops above this line
+    - url: .
+      start_path: content
+
+ui:
+  bundle:
+    # Showroom theme plus the shared workshop CSS, tabs, copy buttons and footer stamp;
+    # see https://github.com/frank-at-redhat/workshop-common
+    url: https://github.com/frank-at-redhat/workshop-common/releases/download/ui-bundle/ui-bundle.zip
+    snapshot: true
+  supplemental_files:
+    - path: .nojekyll
+    - path: ui.yml
+      contents: "static_files: [ .nojekyll ]"
+
+runtime:
+  cache_dir: ./.cache/antora
+
+antora:
+  extensions:
+    - '@antora/pdf-extension'
+
+output:
+  dir: ./www

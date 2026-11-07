@@ -1,0 +1,29 @@
+# The site's home part. Every workshop under workshops/ belongs to this same component
+# (name ROOT, no version), so one navigation spans all of them. The playbooks list this
+# folder last, which makes this file's title, nav and attributes the ones the site uses;
+# a workshop's own antora.yml only applies when it is built alone.
+name: ROOT
+title: "InfoSec Sidecar Workshop"
+version: ~
+nav:
+  - modules/ROOT/nav.adoc
+
+asciidoc:
+  attributes:
+    lab_name: "InfoSec Sidecar Workshop"
+    # The Shared CLI tools page: the repo name names the chart and the tools Deployment,
+    # extra-cli-tools lists what tools/install.sh adds (each in backticks, then ", "),
+    # and the image is a fallback for local builds; the Pages and Release workflows
+    # pass the published image's name and tag.
+    workshop-name: "infosec-sidecar-workshop"
+    extra-cli-tools: ""
+    tools-image-basename: ghcr.io/frank-at-redhat/infosec-sidecar-workshop-tools
+    tools-image-tag: latest
+    # The deployment steps on the instructor guide: the site image and the chart version,
+    # with fallbacks for builds that aren't from a release.
+    site-image-basename: ghcr.io/frank-at-redhat/infosec-sidecar-workshop
+    chart-version: "X.Y.Z"
+    page-pagination: true
+    # tabs with the same names (such as AWS and Azure) switch together on a page
+    tabs-sync-option: ''
+    page-links: []

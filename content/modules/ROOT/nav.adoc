@@ -1,0 +1,11 @@
+* xref:index.adoc[Workshop Home]
+* xref:instructor.adoc[Workshop Instructor Guide]
+** xref:downloads.adoc[Downloads]
+** xref:infosec-sidecar:setup-requirements.adoc[InfoSec Sidecar]
+// add-workshop.py adds workshops above this line
+* xref:attendee.adoc[Workshop Attendee Guide]
+** xref:cli-tools.adoc[Shared CLI tools]
+* Workshop Content
+** xref:infosec-sidecar:index.adoc[InfoSec Sidecar]
+include::infosec-sidecar:partial$nav-items.adoc[]
+// add-workshop.py adds workshops above this line

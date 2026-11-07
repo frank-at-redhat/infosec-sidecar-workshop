@@ -1,0 +1,27 @@
+# Site and PDF build output
+www/
+build/
+.cache/
+
+# Local tools
+node_modules/
+package-lock.json
+vendor/bundle/
+.bundle/
+Gemfile.lock
+
+# Editors and systems
+.DS_Store
+.vscode/
+.idea/
+*.log
+*.tmp
+.env
+.env.*
+.offline-chart/
+.preview-playbook.yml
+.standalone-*.yml
+.workshop-common/
+
+# Written by scripts/list-downloads.py in the Pages and Release workflows
+content/modules/ROOT/partials/workshop-downloads.adoc
