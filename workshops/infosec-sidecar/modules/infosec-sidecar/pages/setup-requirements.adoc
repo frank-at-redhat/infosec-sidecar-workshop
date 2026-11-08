@@ -40,8 +40,9 @@ Module 3 exposes the mesh gateway with a passthrough `Route`; MetalLB is an alte
 |The attendee, in Module 2
 |Modules 2 to 6
 
-|Kubernetes Gateway API CRDs (`gateway.networking.k8s.io`), including `TLSRoute`
-|OpenShift ships the standard channel; the attendee adds the experimental channel's `TLSRoute` CRD in Module 3
+|Istio `Gateway` and `VirtualService` CRDs (`networking.istio.io`)
+|The Service Mesh Operator, in Module 2.
+Gateway API is not used: OpenShift's Ingress Operator owns those CRDs and does not ship `TLSRoute`; Module 3 explains.
 |Module 3
 
 |Kiali (optional)
@@ -85,7 +86,7 @@ endif::[]
 
 == Attendee Accounts, Projects and Roles
 
-Every attendee needs `cluster-admin` on their cluster: the workshop installs two Operators, creates cluster-scoped `ClusterFederatedTrustDomain` and `ClusterSPIFFEID` resources, and adds a CRD.
+Every attendee needs `cluster-admin` on their cluster: the workshop installs two Operators, and creates cluster-scoped `ClusterFederatedTrustDomain` and `ClusterSPIFFEID` resources.
 
 == Network and Image Access
 

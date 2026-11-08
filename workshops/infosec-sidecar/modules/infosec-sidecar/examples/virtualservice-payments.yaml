@@ -1,0 +1,20 @@
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: payments
+  namespace: payments
+spec:
+  hosts:
+  - payments.APPS_DOMAIN
+  gateways:
+  - istio-ingress/infosec-passthrough
+  tls:
+  - match:
+    - port: 8443
+      sniHosts:
+      - payments.APPS_DOMAIN
+    route:
+    - destination:
+        host: payments.payments.svc.cluster.local
+        port:
+          number: 8080

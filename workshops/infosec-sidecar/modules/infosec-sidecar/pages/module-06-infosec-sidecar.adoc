@@ -135,7 +135,7 @@ No gateway re-signed it and no header carried it.
 [source,bash,role=execute]
 ----
 oc logs --namespace istio-ingress \
-  deploy/infosec-passthrough-istio --tail 3
+  deploy/infosec-passthrough --tail 3
 ----
 +
 The gateway's own access log shows a TCP connection to the `payments` cluster with no method, no path and no peer identity: it had nothing to log but SNI.

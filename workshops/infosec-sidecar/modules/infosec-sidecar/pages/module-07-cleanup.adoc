@@ -1,7 +1,7 @@
 = Clean Up
 
 Remove everything the workshop created, in reverse order.
-The Operators and the `TLSRoute` CRD stay unless you remove them too.
+The Operators stay unless you remove them too.
 
 . Delete the external side and the client:
 +

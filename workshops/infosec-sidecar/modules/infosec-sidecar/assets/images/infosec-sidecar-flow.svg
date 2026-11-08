@@ -32,8 +32,8 @@
   <text class="d" x="40" y="218">OpenShift + Service Mesh 3 (Istio), spiffe://cluster.local</text>
   <rect class="box" x="40" y="264" width="340" height="72" rx="8"/>
   <text class="n" x="210" y="288" text-anchor="middle">Istio ingress gateway</text>
-  <text class="s" x="210" y="308" text-anchor="middle">Gateway API TLS listener, mode Passthrough</text>
-  <text class="s" x="210" y="324" text-anchor="middle">TLSRoute matches SNI, no termination</text>
+  <text class="s" x="210" y="308" text-anchor="middle">Istio Gateway, tls.mode PASSTHROUGH</text>
+  <text class="s" x="210" y="324" text-anchor="middle">VirtualService matches SNI, no termination</text>
   <rect class="key" x="40" y="360" width="340" height="88" rx="8"/>
   <text class="n" x="210" y="384" text-anchor="middle">istio-proxy sidecar</text>
   <text class="s" x="210" y="404" text-anchor="middle">PeerAuthentication STRICT</text>

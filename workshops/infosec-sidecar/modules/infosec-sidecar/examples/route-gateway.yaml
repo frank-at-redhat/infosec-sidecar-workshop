@@ -9,8 +9,8 @@ spec:
   host: payments.APPS_DOMAIN
   to:
     kind: Service
-    name: infosec-passthrough-istio
+    name: infosec-passthrough
   port:
-    targetPort: 443
+    targetPort: tls
   tls:
     termination: passthrough

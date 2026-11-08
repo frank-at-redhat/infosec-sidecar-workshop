@@ -17,7 +17,7 @@ The ingress gateway sits on the data path but never holds a key for it.
 
 . xref:module-01-identity-plane.adoc[Identity Plane]: install Zero Trust Workload Identity Manager and bring up SPIRE for the `cluster.local` trust domain.
 . xref:module-02-mesh.adoc[Service Mesh with SPIRE]: install OpenShift Service Mesh 3 with SPIRE as its CA and deploy the `payments` workload.
-. xref:module-03-ingress-passthrough.adoc[Ingress Passthrough]: expose `payments` through a Gateway API TLS listener that routes on SNI without terminating.
+. xref:module-03-ingress-passthrough.adoc[Ingress Passthrough]: expose `payments` through an Istio ingress gateway that routes on SNI without terminating, and why that is the Istio `Gateway` rather than Gateway API on OpenShift.
 . xref:module-04-external-domain.adoc[External Trust Domain]: stand up the `ext.example` SPIRE server that the external application trusts.
 . xref:module-05-federation.adoc[Federation]: exchange trust bundles between the two SPIRE servers and register both workloads.
 . xref:module-06-infosec-sidecar.adoc[InfoSec Sidecar]: run the sidecar, make the call, and read the caller's identity off the mesh sidecar's logs.

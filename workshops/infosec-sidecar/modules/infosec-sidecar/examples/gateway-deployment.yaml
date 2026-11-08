@@ -1,0 +1,51 @@
+# The gateway's own pod. With the Istio Gateway resource (rather than
+# Gateway API) nothing creates this for you, so it is declared here:
+# a Deployment that Istio injects as a gateway, and its Service.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: istio-ingress
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: infosec-passthrough
+  namespace: istio-ingress
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: infosec-passthrough
+  namespace: istio-ingress
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      istio: infosec-passthrough
+  template:
+    metadata:
+      labels:
+        istio: infosec-passthrough
+      annotations:
+        inject.istio.io/templates: gateway
+        sidecar.istio.io/inject: "true"
+    spec:
+      serviceAccountName: infosec-passthrough
+      containers:
+      - name: istio-proxy
+        image: auto
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: infosec-passthrough
+  namespace: istio-ingress
+spec:
+  # ClusterIP: an OpenShift Route (or MetalLB, see that tab) exposes it.
+  type: ClusterIP
+  selector:
+    istio: infosec-passthrough
+  ports:
+  - name: tls
+    port: 443
+    targetPort: 8443

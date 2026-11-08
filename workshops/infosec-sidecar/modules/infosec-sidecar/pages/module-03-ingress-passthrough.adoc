@@ -1,6 +1,6 @@
 = Ingress Passthrough
 
-Expose `payments` through a Gateway API `Gateway` whose TLS listener passes sessions through on SNI without terminating them.
+Expose `payments` through an Istio ingress gateway whose TLS server passes sessions through on SNI without terminating them.
 After this module an outside caller can reach the `payments` sidecar's own TLS listener, which is what makes end-to-end identity possible in Module 6.
 
 .Exercises on this page
@@ -8,58 +8,49 @@ After this module an outside caller can reach the `payments` sidecar's own TLS l
 * <<exercise-2>>
 * <<exercise-3>>
 
+[#why-istio-gateway]
+== Why the Istio Gateway and Not Gateway API
+
+Service Mesh 3 supports both the Kubernetes Gateway API and Istio's own `Gateway` and `VirtualService` resources.
+This workshop uses Istio's, and the reason is an OpenShift constraint worth knowing before a customer asks.
+
+Routing raw TLS on SNI with Gateway API needs the `TLSRoute` resource, which is still in the Gateway API experimental channel.
+Since OpenShift 4.19 the Ingress Operator owns every CRD in the `gateway.networking.k8s.io` group and installs only the standard channel: `GatewayClass`, `Gateway`, `HTTPRoute`, `GRPCRoute` and `ReferenceGrant`.
+A `ValidatingAdmissionPolicy` named `openshift-ingress-operator-gatewayapi-crd-admission` rejects any attempt by anyone other than the operator to create or change a CRD in that group, so `TLSRoute` cannot be added:
+
+----
+Gateway API Custom Resource Definitions are managed by the Ingress
+Operator and may not be modified
+----
+
+Istio's `Gateway` with `tls.mode: PASSTHROUGH` does the same SNI routing, lives in the `networking.istio.io` group that Service Mesh owns, and is fully supported.
+The trade-off is small: nothing creates the gateway pod for you, so Exercise 1 declares it, and the approval gate moves from a namespace selector to the `hosts` entry on the `Gateway`.
+If `TLSRoute` reaches the standard channel and OpenShift ships it, the Gateway API form is a drop-in replacement.
+
+[NOTE]
+====
+Impersonating the Ingress Operator's service account gets past the policy, and you may see that suggested online.
+Don't put it in front of a customer: it is unsupported, and the cluster will flag the foreign CRD at the next minor upgrade.
+====
+
 [#exercise-1]
-== Exercise 1: Add the TLSRoute API
+== Exercise 1: Create the Gateway
 
-OpenShift ships the standard Gateway API channel.
-`TLSRoute` is still in the experimental channel, so it has to be added once per cluster.
-
-. Check which Gateway API resources are present:
+. Create the gateway's pod and its Service.
+The `inject.istio.io/templates: gateway` annotation makes Istio inject the pod as a gateway proxy rather than a sidecar, and the `istio: infosec-passthrough` label is what the `Gateway` resource selects:
++
+[source,yaml]
+----
+include::example$gateway-deployment.yaml[]
+----
 +
 [source,bash,role=execute]
 ----
-oc api-resources --api-group gateway.networking.k8s.io
+oc apply -f $MANIFESTS/gateway-deployment.yaml
 ----
-+
-`gateways`, `gatewayclasses` and `httproutes` are listed; `tlsroutes` is not.
-
-. Find the Gateway API version the installed CRDs came from:
-+
-[source,bash,role=execute]
-----
-oc get crd gateways.gateway.networking.k8s.io --output json \
-  | jq -r '.metadata.annotations
-      | .["gateway.networking.k8s.io/bundle-version"]'
-----
-+
-It prints a version such as `v1.3.0`.
-
-. Add the `TLSRoute` CRD from the experimental channel of that same version:
-+
-[source,bash,role=execute]
-----
-GWAPI=v1.3.0
-GWAPI_URL=https://github.com/kubernetes-sigs/gateway-api/releases/download
-oc apply --server-side \
-  -f "${GWAPI_URL}/${GWAPI}/experimental-install.yaml"
-----
-+
-In a disconnected cluster, download that file ahead of time and apply it from disk.
-
-. Check again:
-+
-[source,bash,role=execute]
-----
-oc api-resources --api-group gateway.networking.k8s.io | grep tlsroutes
-----
-+
-`tlsroutes` is now listed.
-
-[#exercise-2]
-== Exercise 2: Create the Gateway
 
 . Create the `Gateway`.
-Three things to read in it: `mode: Passthrough`, which is the whole pattern; the `allowedRoutes` selector, which is InfoSec's approval gate (no namespace label, no route); and the `service-type` annotation, which keeps the gateway Service internal so the next step can put a `Route` in front of it:
+Two things to read in it: `mode: PASSTHROUGH`, which is the whole pattern, and the `payments/` prefix on the host, which is InfoSec's approval gate: only a `VirtualService` in the `payments` namespace may bind to that hostname.
 +
 [source,yaml]
 ----
@@ -72,42 +63,49 @@ sed "s/APPS_DOMAIN/${APPS}/" $MANIFESTS/gateway-passthrough.yaml \
   | oc apply -f -
 ----
 
-. Wait for the gateway's own pod:
+. Wait for the gateway pod:
 +
 [source,bash,role=execute]
 ----
-oc wait gateway infosec-passthrough \
+oc rollout status deployment/infosec-passthrough \
   --namespace istio-ingress \
-  --for condition=Programmed \
   --timeout 180s
 ----
 +
-It prints `gateway.gateway.networking.k8s.io/infosec-passthrough condition met`.
+It prints `deployment "infosec-passthrough" successfully rolled out`.
 
-. Create the `TLSRoute` in the `payments` namespace.
-The app team owns this resource; the hostname is the SNI the external caller will send, and the backend is the workload's real port:
+[#exercise-2]
+== Exercise 2: Route on SNI
+
+. Create the `VirtualService` in the `payments` namespace.
+The app team owns this resource; the `sniHosts` entry is the name the external caller will send, and the destination is the workload's real port:
 +
 [source,yaml]
 ----
-include::example$tlsroute-payments.yaml[]
+include::example$virtualservice-payments.yaml[]
 ----
 +
 [source,bash,role=execute]
 ----
-sed "s/APPS_DOMAIN/${APPS}/" $MANIFESTS/tlsroute-payments.yaml \
+sed "s/APPS_DOMAIN/${APPS}/g" $MANIFESTS/virtualservice-payments.yaml \
   | oc apply -f -
 ----
 
-. Check that the gateway accepted it:
+. Confirm the gateway is listening on SNI and forwarding as TCP:
 +
 [source,bash,role=execute]
 ----
-oc get tlsroute payments --namespace payments --output json \
-  | jq -r '.status.parents[0].conditions[]
-      | select(.type=="Accepted") | .status'
+istioctl proxy-config listener \
+  deploy/infosec-passthrough \
+  --namespace istio-ingress \
+  --port 8443 \
+  --output json \
+  | jq -r '.[].filterChains[]
+      | "\(.filterChainMatch.serverNames) -> \(.filters[0].name)"'
 ----
 +
-It prints `True`.
+It prints your `payments` hostname followed by `envoy.filters.network.tcp_proxy`.
+No `http_connection_manager` and no TLS transport socket: the gateway reads the SNI and copies bytes.
 
 [#exercise-3]
 == Exercise 3: Expose the Gateway
@@ -146,7 +144,7 @@ echo $GW_HOST
 MetalLB::
 +
 --
-. Create an `IPAddressPool` named `mesh-ingress` with the MetalLB Operator, then replace the `Gateway` with the MetalLB variant:
+. Create an `IPAddressPool` named `mesh-ingress` with the MetalLB Operator, then replace the gateway Service with the `LoadBalancer` variant:
 +
 [source,yaml]
 ----
@@ -158,36 +156,19 @@ include::example$gateway-metallb.yaml[]
 oc apply -f $MANIFESTS/gateway-metallb.yaml
 ----
 
-. Read the VIP and save it; the SNI stays `payments.mesh.example` and your DNS or `/etc/hosts` maps it to the VIP:
+. Read the VIP and save it.
+Use a hostname your DNS or `/etc/hosts` maps to the VIP, and change the host in the `Gateway` and `VirtualService` to match:
 +
 [source,bash,role=execute]
 ----
-export GW_ADDR=$(oc get service infosec-passthrough-istio \
+export GW_ADDR=$(oc get service infosec-passthrough \
   --namespace istio-ingress \
   --output jsonpath='{.status.loadBalancer.ingress[0].ip}')
 export GW_HOST=payments.mesh.example
 echo $GW_ADDR
 ----
-+
-Change the `TLSRoute` hostname to `payments.mesh.example` as well.
 --
 ====
-
-. Confirm the gateway is listening on SNI and forwarding as TCP:
-+
-[source,bash,role=execute]
-----
-istioctl proxy-config listener \
-  deploy/infosec-passthrough-istio \
-  --namespace istio-ingress \
-  --port 443 \
-  --output json \
-  | jq -r '.[].filterChains[]
-      | "\(.filterChainMatch.serverNames) -> \(.filters[0].name)"'
-----
-+
-It prints your `payments` hostname followed by `envoy.filters.network.tcp_proxy`.
-No `http_connection_manager`, no `tls_inspector` terminating anything: the gateway reads the SNI and copies bytes.
 
 . Make a TLS connection through it and look at the certificate that comes back:
 +

@@ -63,7 +63,8 @@ Technology Preview; say so.
 
 |3 Ingress Passthrough
 |30 min
-|The `openssl` check at the end is the demo moment: a certificate from two hops away.
+|Start with the "why Istio Gateway, not Gateway API" section; customers who have read upstream Istio docs expect `TLSRoute` and will ask.
+The `openssl` check at the end is the demo moment: a certificate from two hops away.
 Have attendees read the SAN out loud.
 
 |4 External Trust Domain
